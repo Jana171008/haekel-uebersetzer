@@ -24,6 +24,23 @@ SAETZE = [
     (r"Schwanz zwischen (?:Rd|Rnd|Runde|Reihe) (\d+) und (\d+) des Rumpfes festnähen\.", r"Sew the tail to the body between Rnd \1 and \2."),
 ]
 
+def uebersetze(text):
+    text = text.replace("\xa0", " ")
+    for muster, ersatz in SAETZE:
+        text = re.sub(muster, ersatz, text, flags=re.IGNORECASE)
+    for muster, ersatz in MUSTER:
+        text = re.sub(muster, ersatz, text, flags=re.IGNORECASE)
+    for de in sorted(BEGRIFFE, key=len, reverse=True):
+        text = re.sub(r"\b" + re.escape(de) + r"\b", BEGRIFFE[de], text, flags=re.IGNORECASE)
+    for de, us in ABKUERZUNGEN.items():
+        text = re.sub(r"\b" + de + r"\b", us, text)
+        text = re.sub(r"[ \t]*((?:Change to|With) color \d+\.?)[ \t]*", r"\n\1\n", text)
+    for de in sorted(KOERPERTEILE, key=len, reverse=True):
+        text = re.sub(r"\b" + re.escape(de) + r"\b", KOERPERTEILE[de], text)
+    text = re.sub(r"(?<=\))[ \t]+((?:Rnd|Rd)\s)", r"\n\1", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+    return text
+
 # 1) Ganze Satzmuster (werden zuerst angewendet)
 MUSTER = [
     (r"\((\d+) Runden\)", r"(\1 rounds)"),
@@ -168,23 +185,6 @@ KOERPERTEILE = {
     "Zusammensetzen": "Assembly"
 }
 
-def uebersetze(text):
-    text = text.replace("\xa0", " ")
-    for muster, ersatz in SAETZE:
-        text = re.sub(muster, ersatz, text, flags=re.IGNORECASE)
-    for muster, ersatz in MUSTER:
-        text = re.sub(muster, ersatz, text, flags=re.IGNORECASE)
-    for de in sorted(BEGRIFFE, key=len, reverse=True):
-        text = re.sub(r"\b" + re.escape(de) + r"\b", BEGRIFFE[de], text, flags=re.IGNORECASE)
-    for de, us in ABKUERZUNGEN.items():
-        text = re.sub(r"\b" + de + r"\b", us, text)
-        text = re.sub(r"[ \t]*((?:Change to|With) color \d+\.?)[ \t]*", r"\n\1\n", text)
-    for de in sorted(KOERPERTEILE, key=len, reverse=True):
-        text = re.sub(r"\b" + re.escape(de) + r"\b", KOERPERTEILE[de], text)
-    text = re.sub(r"(?<=\))[ \t]+((?:Rnd|Rd)\s)", r"\n\1", text)
-    text = re.sub(r"\n{2,}", "\n", text)
-    return text
-
 def anzeigen(text):
     # Sternchen maskieren, sonst macht Markdown Kursivschrift daraus
     text = text.replace("*", "\\*")
@@ -221,6 +221,21 @@ def als_word(text):
     doc.save(puffer)
     return puffer.getvalue()
 
+WORT = r"[A-Za-zÄÖÜäöüß]{2,}"
+
+# Wörter, die in beiden Sprachen gleich sind und nicht gemeldet werden sollen
+IGNORIEREN = {"in", "arm", "mr", "max", "off", "on", "iris"}
+
+def uebrige_zeilen(original, uebersetzt):
+    orig = {w.lower() for w in re.findall(WORT, original)}
+    treffer = []
+    for zeile in uebersetzt.split("\n"):
+        woerter = [w for w in re.findall(WORT, zeile)
+                   if w.lower() in orig and w.lower() not in IGNORIEREN]
+        if woerter:
+            treffer.append((sorted(set(w.lower() for w in woerter)), zeile))
+    return treffer
+
 st.title("Häkel-Übersetzer")
 st.write("Lade eine deutsche Häkelanleitung hoch und ich übersetze sie in US-Begriffe.")
 
@@ -247,3 +262,12 @@ if datei is not None:
             file_name=datei.name.rsplit(".", 1)[0] + "_US.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
+    treffer = uebrige_zeilen(text, übersetzt)
+    st.divider()
+    if treffer:
+        st.warning(f"{len(treffer)} Zeile(n) enthalten vermutlich noch deutsche Wörter:")
+        for woerter, zeile in treffer:
+            st.write("**" + ", ".join(woerter) + "** in: " + zeile.replace("*", "\\*"))
+    else:
+        st.success("Keine deutschen Wörter mehr gefunden.")       
+        
